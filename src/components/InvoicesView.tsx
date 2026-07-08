@@ -8,7 +8,7 @@ interface InvoicesViewProps {
   companySettings: CompanySettings;
   invoices: Invoice[];
   activeInvoiceId: string | null;
-  onAddInvoice: (invoice: Omit<Invoice, 'id' | 'createdAt' | 'status' | 'payments'>) => Invoice;
+  onAddInvoice: (invoice: Omit<Invoice, 'id' | 'createdAt' | 'status' | 'payments'>) => Promise<Invoice>;
   onUpdateInvoice: (invoice: Invoice) => void;
   onDeleteInvoice: (id: string) => void;
   onAddPayment: (invoiceId: string, amount: number, method: string, note: string, date: string) => void;
@@ -147,7 +147,7 @@ export default function InvoicesView({
     setEditingInvoice(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientId) {
       alert('Silakan pilih klien penerima invoice.');
@@ -169,16 +169,20 @@ export default function InvoicesView({
       notes
     };
 
-    if (editingInvoice) {
-      onUpdateInvoice({
-        ...editingInvoice,
-        ...payload
-      });
-    } else {
-      const created = onAddInvoice(payload);
-      setViewingInvoice(created); // Auto open viewing mode
+    try {
+      if (editingInvoice) {
+        await onUpdateInvoice({
+          ...editingInvoice,
+          ...payload
+        });
+      } else {
+        const created = await onAddInvoice(payload);
+        setViewingInvoice(created); // Auto open viewing mode
+      }
+      handleCloseForm();
+    } catch (error) {
+      alert('Gagal menyimpan invoice. Silakan coba lagi.');
     }
-    handleCloseForm();
   };
 
   const handleDelete = (id: string, num: string) => {

@@ -8,7 +8,7 @@ interface OfferingsViewProps {
   companySettings: CompanySettings;
   offerings: Offering[];
   activeOfferingId: string | null;
-  onAddOffering: (offering: Omit<Offering, 'id' | 'createdAt'>) => Offering;
+  onAddOffering: (offering: Omit<Offering, 'id' | 'createdAt'>) => Promise<Offering>;
   onUpdateOffering: (offering: Offering) => void;
   onDeleteOffering: (id: string) => void;
   onConvertOfferingToInvoice: (offering: Offering) => void;
@@ -155,7 +155,7 @@ export default function OfferingsView({
     setEditingOffering(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientId) {
       alert('Silakan pilih klien terlebih dahulu.');
@@ -179,16 +179,20 @@ export default function OfferingsView({
       notes
     };
 
-    if (editingOffering) {
-      onUpdateOffering({
-        ...editingOffering,
-        ...payload
-      });
-    } else {
-      const created = onAddOffering(payload);
-      setViewingOffering(created); // Auto show on success
+    try {
+      if (editingOffering) {
+        await onUpdateOffering({
+          ...editingOffering,
+          ...payload
+        });
+      } else {
+        const created = await onAddOffering(payload);
+        setViewingOffering(created); // Auto show on success
+      }
+      handleCloseForm();
+    } catch (error) {
+      alert('Gagal menyimpan penawaran. Silakan coba lagi.');
     }
-    handleCloseForm();
   };
 
   const handleDelete = (id: string, num: string) => {

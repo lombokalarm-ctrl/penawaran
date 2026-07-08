@@ -1,87 +1,246 @@
 import { useState, useEffect } from 'react';
-import { Client, CompanySettings, Offering, Invoice, Payment, OfferingStatus, InvoiceStatus } from './types';
-import { initialCompanySettings, initialClients, initialOfferings, initialInvoices } from './sampleData';
+import { onAuthStateChanged, User, signInWithPopup, signOut } from 'firebase/auth';
+import { auth, googleAuthProvider } from './lib/firebase.ts';
+import { Client, CompanySettings, Offering, Invoice, OfferingStatus, InvoiceStatus } from './types';
 
 export function useAppState() {
-  const [companySettings, setCompanySettings] = useState<CompanySettings>(() => {
-    const saved = localStorage.getItem('com_settings');
-    return saved ? JSON.parse(saved) : initialCompanySettings;
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+
+  const [companySettings, setCompanySettings] = useState<CompanySettings>({
+    name: '',
+    address: '',
+    email: '',
+    phone: '',
+    website: '',
+    bankName: '',
+    bankBranch: '',
+    bankAccountNo: '',
+    bankAccountName: '',
+    taxRate: 11,
+    signatureName: '',
+    signaturePosition: '',
   });
 
-  const [clients, setClients] = useState<Client[]>(() => {
-    const saved = localStorage.getItem('com_clients');
-    return saved ? JSON.parse(saved) : initialClients;
+  const [clients, setClients] = useState<Client[]>([]);
+  const [offerings, setOfferings] = useState<Offering[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [dataLoading, setDataLoading] = useState<boolean>(false);
+
+  // Map database response to client-side model (string IDs)
+  const mapClient = (c: any): Client => ({
+    ...c,
+    id: String(c.id),
+    createdAt: c.createdAt ? new Date(c.createdAt).toISOString().split('T')[0] : ''
   });
 
-  const [offerings, setOfferings] = useState<Offering[]>(() => {
-    const saved = localStorage.getItem('com_offerings');
-    return saved ? JSON.parse(saved) : initialOfferings;
+  const mapOffering = (o: any): Offering => ({
+    ...o,
+    id: String(o.id),
+    clientId: String(o.clientId),
+    discount: Number(o.discount) || 0,
+    taxRate: Number(o.taxRate) || 11,
+    items: (o.items || []).map((item: any) => ({
+      ...item,
+      id: String(item.id)
+    })),
+    createdAt: o.createdAt ? new Date(o.createdAt).toISOString().split('T')[0] : ''
   });
 
-  const [invoices, setInvoices] = useState<Invoice[]>(() => {
-    const saved = localStorage.getItem('com_invoices');
-    return saved ? JSON.parse(saved) : initialInvoices;
+  const mapInvoice = (i: any): Invoice => ({
+    ...i,
+    id: String(i.id),
+    clientId: String(i.clientId),
+    offeringId: i.offeringId ? String(i.offeringId) : undefined,
+    discount: Number(i.discount) || 0,
+    taxRate: Number(i.taxRate) || 11,
+    items: (i.items || []).map((item: any) => ({
+      ...item,
+      id: String(item.id)
+    })),
+    payments: (i.payments || []).map((p: any) => ({
+      ...p,
+      id: String(p.id)
+    })),
+    createdAt: i.createdAt ? new Date(i.createdAt).toISOString().split('T')[0] : ''
   });
 
-  // Save to localstorage on changes
+  // Helper for safe requests with Auth Token
+  const request = async (url: string, options: RequestInit = {}) => {
+    if (!auth.currentUser) throw new Error("Not logged in");
+    const token = await auth.currentUser.getIdToken();
+    const res = await fetch(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP error ${res.status}`);
+    }
+    return res.json();
+  };
+
+  // Listen to Firebase Auth Changes
   useEffect(() => {
-    localStorage.setItem('com_settings', JSON.stringify(companySettings));
-  }, [companySettings]);
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setAuthLoading(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Fetch all data from backend when user logs in
+  const fetchData = async () => {
+    if (!user) return;
+    setDataLoading(true);
+    try {
+      const [settingsData, clientsData, offeringsData, invoicesData] = await Promise.all([
+        request('/api/company-settings'),
+        request('/api/clients'),
+        request('/api/offerings'),
+        request('/api/invoices')
+      ]);
+
+      if (settingsData) {
+        setCompanySettings(settingsData);
+      }
+      setClients((clientsData || []).map(mapClient));
+      setOfferings((offeringsData || []).map(mapOffering));
+      setInvoices((invoicesData || []).map(mapInvoice));
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    } finally {
+      setDataLoading(false);
+    }
+  };
 
   useEffect(() => {
-    localStorage.setItem('com_clients', JSON.stringify(clients));
-  }, [clients]);
+    if (user) {
+      fetchData();
+    } else {
+      setClients([]);
+      setOfferings([]);
+      setInvoices([]);
+    }
+  }, [user]);
 
-  useEffect(() => {
-    localStorage.setItem('com_offerings', JSON.stringify(offerings));
-  }, [offerings]);
+  // Auth actions
+  const loginWithGoogle = async () => {
+    try {
+      await signInWithPopup(auth, googleAuthProvider);
+    } catch (error) {
+      console.error('Login failed:', error);
+    }
+  };
 
-  useEffect(() => {
-    localStorage.setItem('com_invoices', JSON.stringify(invoices));
-  }, [invoices]);
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
 
   // Client actions
-  const addClient = (client: Omit<Client, 'id' | 'createdAt'>) => {
-    const newClient: Client = {
-      ...client,
-      id: `client-${Date.now()}`,
-      createdAt: new Date().toISOString().split('T')[0]
-    };
-    setClients(prev => [newClient, ...prev]);
-    return newClient;
+  const addClient = async (client: Omit<Client, 'id' | 'createdAt'>) => {
+    try {
+      const saved = await request('/api/clients', {
+        method: 'POST',
+        body: JSON.stringify(client)
+      });
+      const mapped = mapClient(saved);
+      setClients(prev => [mapped, ...prev]);
+      return mapped;
+    } catch (error) {
+      console.error('Error adding client:', error);
+      throw error;
+    }
   };
 
-  const updateClient = (updated: Client) => {
-    setClients(prev => prev.map(c => c.id === updated.id ? updated : c));
+  const updateClient = async (updated: Client) => {
+    try {
+      const saved = await request(`/api/clients/${updated.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updated)
+      });
+      const mapped = mapClient(saved);
+      setClients(prev => prev.map(c => c.id === mapped.id ? mapped : c));
+    } catch (error) {
+      console.error('Error updating client:', error);
+      throw error;
+    }
   };
 
-  const deleteClient = (id: string) => {
-    setClients(prev => prev.filter(c => c.id !== id));
-    // Optionally clean up or alert about orphaned offerings/invoices
+  const deleteClient = async (id: string) => {
+    try {
+      await request(`/api/clients/${id}`, {
+        method: 'DELETE'
+      });
+      setClients(prev => prev.filter(c => c.id !== id));
+    } catch (error) {
+      console.error('Error deleting client:', error);
+      throw error;
+    }
   };
 
   // Company Settings actions
-  const updateCompanySettings = (settings: CompanySettings) => {
-    setCompanySettings(settings);
+  const updateCompanySettings = async (settings: CompanySettings) => {
+    try {
+      const saved = await request('/api/company-settings', {
+        method: 'PUT',
+        body: JSON.stringify(settings)
+      });
+      setCompanySettings(saved);
+    } catch (error) {
+      console.error('Error updating company settings:', error);
+      throw error;
+    }
   };
 
   // Offering actions
-  const addOffering = (offering: Omit<Offering, 'id' | 'createdAt'>) => {
-    const newOffering: Offering = {
-      ...offering,
-      id: `offering-${Date.now()}`,
-      createdAt: new Date().toISOString().split('T')[0]
-    };
-    setOfferings(prev => [newOffering, ...prev]);
-    return newOffering;
+  const addOffering = async (offering: Omit<Offering, 'id' | 'createdAt'>) => {
+    try {
+      const saved = await request('/api/offerings', {
+        method: 'POST',
+        body: JSON.stringify(offering)
+      });
+      const mapped = mapOffering(saved);
+      setOfferings(prev => [mapped, ...prev]);
+      return mapped;
+    } catch (error) {
+      console.error('Error adding offering:', error);
+      throw error;
+    }
   };
 
-  const updateOffering = (updated: Offering) => {
-    setOfferings(prev => prev.map(o => o.id === updated.id ? updated : o));
+  const updateOffering = async (updated: Offering) => {
+    try {
+      const saved = await request(`/api/offerings/${updated.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updated)
+      });
+      const mapped = mapOffering(saved);
+      setOfferings(prev => prev.map(o => o.id === mapped.id ? mapped : o));
+    } catch (error) {
+      console.error('Error updating offering:', error);
+      throw error;
+    }
   };
 
-  const deleteOffering = (id: string) => {
-    setOfferings(prev => prev.filter(o => o.id !== id));
+  const deleteOffering = async (id: string) => {
+    try {
+      await request(`/api/offerings/${id}`, {
+        method: 'DELETE'
+      });
+      setOfferings(prev => prev.filter(o => o.id !== id));
+    } catch (error) {
+      console.error('Error deleting offering:', error);
+      throw error;
+    }
   };
 
   // Helper to calculate total amount of line items with tax & discount
@@ -94,52 +253,75 @@ export function useAppState() {
   };
 
   // Invoice actions
-  const addInvoice = (invoice: Omit<Invoice, 'id' | 'createdAt' | 'status' | 'payments'>) => {
-    const newInvoice: Invoice = {
-      ...invoice,
-      id: `invoice-${Date.now()}`,
-      status: 'Belum Lunas',
-      payments: [],
-      createdAt: new Date().toISOString().split('T')[0]
-    };
-    setInvoices(prev => [newInvoice, ...prev]);
-    return newInvoice;
-  };
-
-  const updateInvoice = (updated: Invoice) => {
-    // Recalculate status based on payments
-    const { grandTotal } = getTotals(updated.items, updated.discount, updated.taxRate);
-    const totalPaid = updated.payments.reduce((sum, p) => sum + p.amount, 0);
-    const remaining = Math.max(0, grandTotal - totalPaid);
-
-    let newStatus: InvoiceStatus = 'Belum Lunas';
-    if (totalPaid >= grandTotal) {
-      newStatus = 'Lunas';
-    } else if (totalPaid > 0) {
-      newStatus = 'Dibayar Sebagian';
-    } else {
-      // Check if past due date
-      const today = new Date().toISOString().split('T')[0];
-      if (updated.dueDate < today) {
-        newStatus = 'Jatuh Tempo';
-      }
+  const addInvoice = async (invoice: Omit<Invoice, 'id' | 'createdAt' | 'status' | 'payments'>) => {
+    try {
+      const payload = {
+        ...invoice,
+        status: 'Belum Lunas',
+        payments: []
+      };
+      const saved = await request('/api/invoices', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      const mapped = mapInvoice(saved);
+      setInvoices(prev => [mapped, ...prev]);
+      return mapped;
+    } catch (error) {
+      console.error('Error adding invoice:', error);
+      throw error;
     }
-
-    const finalInvoice: Invoice = {
-      ...updated,
-      status: newStatus
-    };
-
-    setInvoices(prev => prev.map(i => i.id === finalInvoice.id ? finalInvoice : i));
   };
 
-  const deleteInvoice = (id: string) => {
-    setInvoices(prev => prev.filter(i => i.id !== id));
+  const updateInvoice = async (updated: Invoice) => {
+    try {
+      // Recalculate status based on payments
+      const { grandTotal } = getTotals(updated.items, updated.discount, updated.taxRate);
+      const totalPaid = updated.payments.reduce((sum, p) => sum + p.amount, 0);
+
+      let newStatus: InvoiceStatus = 'Belum Lunas';
+      if (totalPaid >= grandTotal) {
+        newStatus = 'Lunas';
+      } else if (totalPaid > 0) {
+        newStatus = 'Dibayar Sebagian';
+      } else {
+        const today = new Date().toISOString().split('T')[0];
+        if (updated.dueDate < today) {
+          newStatus = 'Jatuh Tempo';
+        }
+      }
+
+      const finalInvoice = {
+        ...updated,
+        status: newStatus
+      };
+
+      const saved = await request(`/api/invoices/${updated.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(finalInvoice)
+      });
+      const mapped = mapInvoice(saved);
+      setInvoices(prev => prev.map(i => i.id === mapped.id ? mapped : i));
+    } catch (error) {
+      console.error('Error updating invoice:', error);
+      throw error;
+    }
+  };
+
+  const deleteInvoice = async (id: string) => {
+    try {
+      await request(`/api/invoices/${id}`, {
+        method: 'DELETE'
+      });
+      setInvoices(prev => prev.filter(i => i.id !== id));
+    } catch (error) {
+      console.error('Error deleting invoice:', error);
+      throw error;
+    }
   };
 
   // Convert Offering to Invoice directly (Automated flow)
-  const convertOfferingToInvoice = (offering: Offering) => {
-    // Generate Invoice number automatically
+  const convertOfferingToInvoice = async (offering: Offering) => {
     const yearMonth = new Date().toISOString().split('T')[0].substring(0, 7).replace('-', '/');
     const randomNum = Math.floor(100 + Math.random() * 900);
     const invoiceNumber = `INV/${yearMonth}/${randomNum}`;
@@ -149,8 +331,7 @@ export function useAppState() {
     thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
     const dueDate = thirtyDaysLater.toISOString().split('T')[0];
 
-    const newInvoice: Invoice = {
-      id: `invoice-${Date.now()}`,
+    const payload = {
       invoiceNumber,
       offeringId: offering.id,
       date: today,
@@ -161,40 +342,47 @@ export function useAppState() {
       taxRate: offering.taxRate,
       status: 'Belum Lunas',
       payments: [],
-      notes: `Invoice ini dikonversi secara otomatis dari penawaran ${offering.offeringNumber}.`,
-      createdAt: today
+      notes: `Invoice ini dikonversi secara otomatis dari penawaran ${offering.offeringNumber}.`
     };
 
-    setInvoices(prev => [newInvoice, ...prev]);
-
-    // Also update offering status to 'Disetujui' (Approved) if it wasn't already
-    if (offering.status !== 'Disetujui') {
-      updateOffering({
-        ...offering,
-        status: 'Disetujui'
+    try {
+      const savedInvoice = await request('/api/invoices', {
+        method: 'POST',
+        body: JSON.stringify(payload)
       });
-    }
+      const mappedInvoice = mapInvoice(savedInvoice);
+      setInvoices(prev => [mappedInvoice, ...prev]);
 
-    return newInvoice;
+      // Also update offering status to 'Disetujui' (Approved) if it wasn't already
+      if (offering.status !== 'Disetujui') {
+        await updateOffering({
+          ...offering,
+          status: 'Disetujui'
+        });
+      }
+
+      return mappedInvoice;
+    } catch (error) {
+      console.error('Error converting offering to invoice:', error);
+      throw error;
+    }
   };
 
   // Add payment to invoice (Incremental payment feature)
-  const addPayment = (invoiceId: string, paymentAmount: number, method: string, note: string, date: string) => {
-    const invoice = invoices.find(i => i.id === invoiceId);
+  const addPayment = async (invoiceId: string, paymentAmount: number, method: string, note: string, date: string) => {
+    const invoice = invoices.find(i => String(i.id) === String(invoiceId));
     if (!invoice) return;
 
-    const newPayment: Payment = {
-      id: `pay-${Date.now()}`,
+    const newPayment = {
       date: date || new Date().toISOString().split('T')[0],
       amount: paymentAmount,
       method,
       note
     };
 
-    const updatedPayments = [...invoice.payments, newPayment];
+    const updatedPayments = [...(invoice.payments || []), newPayment];
     const { grandTotal } = getTotals(invoice.items, invoice.discount, invoice.taxRate);
     const totalPaid = updatedPayments.reduce((sum, p) => sum + p.amount, 0);
-    const remaining = Math.max(0, grandTotal - totalPaid);
 
     let newStatus: InvoiceStatus = 'Belum Lunas';
     if (totalPaid >= grandTotal) {
@@ -208,21 +396,29 @@ export function useAppState() {
       }
     }
 
-    const updatedInvoice: Invoice = {
+    const updatedInvoice = {
       ...invoice,
       payments: updatedPayments,
       status: newStatus
     };
 
-    setInvoices(prev => prev.map(i => i.id === invoiceId ? updatedInvoice : i));
+    try {
+      const saved = await request(`/api/invoices/${invoiceId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updatedInvoice)
+      });
+      setInvoices(prev => prev.map(i => String(i.id) === String(invoiceId) ? mapInvoice(saved) : i));
+    } catch (err) {
+      console.error("Error saving payment:", err);
+    }
   };
 
   // Delete a single partial payment
-  const deletePayment = (invoiceId: string, paymentId: string) => {
-    const invoice = invoices.find(i => i.id === invoiceId);
+  const deletePayment = async (invoiceId: string, paymentId: string) => {
+    const invoice = invoices.find(i => String(i.id) === String(invoiceId));
     if (!invoice) return;
 
-    const updatedPayments = invoice.payments.filter(p => p.id !== paymentId);
+    const updatedPayments = (invoice.payments || []).filter(p => String(p.id) !== String(paymentId));
     const { grandTotal } = getTotals(invoice.items, invoice.discount, invoice.taxRate);
     const totalPaid = updatedPayments.reduce((sum, p) => sum + p.amount, 0);
 
@@ -238,16 +434,29 @@ export function useAppState() {
       }
     }
 
-    const updatedInvoice: Invoice = {
+    const updatedInvoice = {
       ...invoice,
       payments: updatedPayments,
       status: newStatus
     };
 
-    setInvoices(prev => prev.map(i => i.id === invoiceId ? updatedInvoice : i));
+    try {
+      const saved = await request(`/api/invoices/${invoiceId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updatedInvoice)
+      });
+      setInvoices(prev => prev.map(i => String(i.id) === String(invoiceId) ? mapInvoice(saved) : i));
+    } catch (err) {
+      console.error("Error deleting payment:", err);
+    }
   };
 
   return {
+    user,
+    authLoading,
+    dataLoading,
+    loginWithGoogle,
+    logout,
     companySettings,
     clients,
     offerings,

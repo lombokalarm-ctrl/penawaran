@@ -7,7 +7,7 @@ interface ClientsViewProps {
   clients: Client[];
   offerings: Offering[];
   invoices: Invoice[];
-  onAddClient: (client: Omit<Client, 'id' | 'createdAt'>) => Client;
+  onAddClient: (client: Omit<Client, 'id' | 'createdAt'>) => Promise<Client>;
   onUpdateClient: (client: Client) => void;
   onDeleteClient: (id: string) => void;
   getTotals: (items: any[], discount: number, taxRate: number) => { subtotal: number; taxAmount: number; grandTotal: number };
@@ -64,7 +64,7 @@ export default function ClientsView({
     setEditingClient(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyName.trim() || !picName.trim() || !email.trim()) {
       alert('Nama Perusahaan, Nama PIC, dan Email wajib diisi.');
@@ -81,15 +81,19 @@ export default function ClientsView({
       picPosition
     };
 
-    if (editingClient) {
-      onUpdateClient({
-        ...editingClient,
-        ...clientPayload
-      });
-    } else {
-      onAddClient(clientPayload);
+    try {
+      if (editingClient) {
+        await onUpdateClient({
+          ...editingClient,
+          ...clientPayload
+        });
+      } else {
+        await onAddClient(clientPayload);
+      }
+      handleCloseForm();
+    } catch (error) {
+      alert('Gagal menyimpan klien. Silakan coba lagi.');
     }
-    handleCloseForm();
   };
 
   const handleDelete = (id: string, name: string) => {
