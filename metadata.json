@@ -1,0 +1,6 @@
+{
+  "name": "Sistem Penawaran & Invoice Perusahaan",
+  "description": "Aplikasi berbasis web untuk pembuatan penawaran otomatis, manajemen invoice, pelacakan status pembayaran bertahap, dan manajemen klien dengan ekspor PDF formal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
