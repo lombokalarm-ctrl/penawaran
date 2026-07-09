@@ -1,11 +1,14 @@
 import { relations } from 'drizzle-orm';
 import { integer, pgTable, serial, text, timestamp, doublePrecision, json } from 'drizzle-orm/pg-core';
 
-// Define users table (Firebase Auth uid as unique reference)
+// Define users table
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
-  uid: text('uid').notNull().unique(),
+  uid: text('uid').unique(),
+  username: text('username').notNull().unique(),
   email: text('email').notNull(),
+  passwordHash: text('password_hash').notNull(),
+  token: text('token'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

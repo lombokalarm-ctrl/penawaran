@@ -1,10 +1,19 @@
 import express from 'express';
 import path from 'path';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { requireAuth, AuthRequest } from './src/middleware/auth.ts';
 import { db } from './src/db/index.ts';
-import { companySettings, clients, offerings, offeringItems, invoices, invoiceItems, payments } from './src/db/schema.ts';
-import { eq, and } from 'drizzle-orm';
+import { users, companySettings, clients, offerings, offeringItems, invoices, invoiceItems, payments } from './src/db/schema.ts';
+import { eq, and, or } from 'drizzle-orm';
+
+function hashPassword(password: string): string {
+  return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+function generateToken(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
 
 async function startServer() {
   const app = express();
@@ -15,6 +24,126 @@ async function startServer() {
   // API: Health Check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
+  });
+
+  // API: Custom Auth Register
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const { username, email, password } = req.body;
+      if (!username || !email || !password) {
+        return res.status(400).json({ error: 'Username, email, and password are required' });
+      }
+
+      // Check if username or email already exists
+      const existingUser = await db.query.users.findFirst({
+        where: (u, { or, eq }) => or(eq(u.username, username), eq(u.email, email)),
+      });
+
+      if (existingUser) {
+        return res.status(400).json({ error: 'Username or email already exists' });
+      }
+
+      const passwordHash = hashPassword(password);
+      const token = generateToken();
+
+      const inserted = await db.insert(users)
+        .values({
+          username,
+          email,
+          passwordHash,
+          token,
+        })
+        .returning();
+
+      const newUser = inserted[0];
+
+      // Create company settings for the user
+      await db.insert(companySettings)
+        .values({
+          userId: newUser.id,
+          name: 'PT Inovasi Teknologi Nusantara',
+          address: 'Jl. Merdeka No. 123, Jakarta, Indonesia',
+          email: newUser.email,
+          phone: '+62 21 555 1234',
+          website: 'www.itn.co.id',
+          bankName: 'Bank Mandiri',
+          bankBranch: 'KCP Jakarta Sudirman',
+          bankAccountNo: '123-45-67890-1',
+          bankAccountName: 'PT Inovasi Teknologi Nusantara',
+          taxRate: 11,
+          signatureName: 'Budi Santoso',
+          signaturePosition: 'Direktur Utama',
+        })
+        .onConflictDoNothing();
+
+      res.json({
+        user: {
+          id: newUser.id,
+          username: newUser.username,
+          email: newUser.email,
+        },
+        token,
+      });
+    } catch (error: any) {
+      console.error('Error during registration:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // API: Custom Auth Login
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required' });
+      }
+
+      // Find user by username or email
+      const userRecord = await db.query.users.findFirst({
+        where: (u, { or, eq }) => or(eq(u.username, username), eq(u.email, username)),
+      });
+
+      if (!userRecord || userRecord.passwordHash !== hashPassword(password)) {
+        return res.status(401).json({ error: 'Invalid username/email or password' });
+      }
+
+      const token = generateToken();
+      await db.update(users)
+        .set({ token })
+        .where(eq(users.id, userRecord.id));
+
+      res.json({
+        user: {
+          id: userRecord.id,
+          username: userRecord.username,
+          email: userRecord.email,
+        },
+        token,
+      });
+    } catch (error: any) {
+      console.error('Error during login:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // API: Custom Auth Logout
+  app.post('/api/auth/logout', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      await db.update(users)
+        .set({ token: null })
+        .where(eq(users.id, req.dbUser!.id));
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error during logout:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // API: Custom Auth Me
+  app.get('/api/auth/me', requireAuth, (req: AuthRequest, res) => {
+    res.json({
+      user: req.dbUser,
+    });
   });
 
   // API: Company Settings

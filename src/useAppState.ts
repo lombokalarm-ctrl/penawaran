@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
-import { onAuthStateChanged, User, signInWithPopup, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth, googleAuthProvider } from './lib/firebase.ts';
-import { Client, CompanySettings, Offering, Invoice, OfferingStatus, InvoiceStatus } from './types';
+import { User, Client, CompanySettings, Offering, Invoice, OfferingStatus, InvoiceStatus } from './types';
 
 export function useAppState() {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [authLoading, setAuthLoading] = useState<boolean>(true);
 
   const [companySettings, setCompanySettings] = useState<CompanySettings>({
@@ -67,14 +66,14 @@ export function useAppState() {
 
   // Helper for safe requests with Auth Token
   const request = async (url: string, options: RequestInit = {}) => {
-    if (!auth.currentUser) throw new Error("Not logged in");
-    const token = await auth.currentUser.getIdToken();
+    const currentToken = localStorage.getItem('token');
+    if (!currentToken) throw new Error("Not logged in");
     const res = await fetch(url, {
       ...options,
       headers: {
         ...options.headers,
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${currentToken}`
       }
     });
     if (!res.ok) {
@@ -84,14 +83,38 @@ export function useAppState() {
     return res.json();
   };
 
-  // Listen to Firebase Auth Changes
+  // Check persisted auth token on startup and whenever token state changes
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setAuthLoading(false);
-    });
-    return unsubscribe;
-  }, []);
+    const checkAuth = async () => {
+      const savedToken = localStorage.getItem('token');
+      if (!savedToken) {
+        setUser(null);
+        setAuthLoading(false);
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/me', {
+          headers: {
+            'Authorization': `Bearer ${savedToken}`
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUser(data.user);
+        } else {
+          localStorage.removeItem('token');
+          setToken(null);
+          setUser(null);
+        }
+      } catch (error) {
+        console.error('Failed to verify session token:', error);
+        setUser(null);
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+    checkAuth();
+  }, [token]);
 
   // Fetch all data from backend when user logs in
   const fetchData = async () => {
@@ -130,26 +153,61 @@ export function useAppState() {
 
   // Auth actions
   const loginWithGoogle = async () => {
-    try {
-      await signInWithPopup(auth, googleAuthProvider);
-    } catch (error) {
-      console.error('Login failed:', error);
+    alert('Google login tidak didukung lagi. Silakan masuk menggunakan form Username/Email dan Password.');
+  };
+
+  const loginWithEmail = async (emailOrUsername: string, pass: string) => {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ username: emailOrUsername, password: pass })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Login gagal. Periksa kembali username dan password Anda.');
     }
+    localStorage.setItem('token', data.token);
+    setToken(data.token);
+    setUser(data.user);
   };
 
-  const loginWithEmail = async (email: string, pass: string) => {
-    await signInWithEmailAndPassword(auth, email, pass);
-  };
-
-  const registerWithEmail = async (email: string, pass: string) => {
-    await createUserWithEmailAndPassword(auth, email, pass);
+  const registerWithEmail = async (email: string, pass: string, customUsername?: string) => {
+    const username = customUsername || email.split('@')[0];
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ username, email, password: pass })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Registrasi gagal. Email atau Username mungkin sudah digunakan.');
+    }
+    localStorage.setItem('token', data.token);
+    setToken(data.token);
+    setUser(data.user);
   };
 
   const logout = async () => {
     try {
-      await signOut(auth);
+      const savedToken = localStorage.getItem('token');
+      if (savedToken) {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${savedToken}`
+          }
+        });
+      }
     } catch (error) {
-      console.error('Logout failed:', error);
+      console.error('Logout error on server:', error);
+    } finally {
+      localStorage.removeItem('token');
+      setToken(null);
+      setUser(null);
     }
   };
 

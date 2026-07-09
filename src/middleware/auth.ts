@@ -1,14 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { adminAuth } from '../lib/firebase-admin.ts';
-import { DecodedIdToken } from 'firebase-admin/auth';
 import { db } from '../db/index.ts';
-import { users, companySettings } from '../db/schema.ts';
+import { companySettings } from '../db/schema.ts';
 
 export interface AuthRequest extends Request {
-  user?: DecodedIdToken;
   dbUser?: {
     id: number;
-    uid: string;
+    username: string;
     email: string;
   };
 }
@@ -25,27 +22,13 @@ export const requireAuth = async (
 
   const token = authHeader.split('Bearer ')[1];
   try {
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    req.user = decodedToken;
+    const dbUser = await db.query.users.findFirst({
+      where: (u, { eq }) => eq(u.token, token),
+    });
 
-    // Get or create the user in the database
-    const uid = decodedToken.uid;
-    const email = decodedToken.email || '';
-
-    let dbUserResult = await db.insert(users)
-      .values({
-        uid,
-        email,
-      })
-      .onConflictDoUpdate({
-        target: users.uid,
-        set: {
-          email,
-        },
-      })
-      .returning();
-
-    const dbUser = dbUserResult[0];
+    if (!dbUser) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+    }
 
     // Ensure company settings exist for the user
     const existingSettings = await db.query.companySettings.findFirst({
@@ -58,7 +41,7 @@ export const requireAuth = async (
           userId: dbUser.id,
           name: 'PT Inovasi Teknologi Nusantara',
           address: 'Jl. Merdeka No. 123, Jakarta, Indonesia',
-          email: 'info@itn.co.id',
+          email: dbUser.email || 'info@itn.co.id',
           phone: '+62 21 555 1234',
           website: 'www.itn.co.id',
           bankName: 'Bank Mandiri',
@@ -75,7 +58,7 @@ export const requireAuth = async (
     req.dbUser = dbUser;
     next();
   } catch (error) {
-    console.error('Error verifying Firebase ID token:', error);
+    console.error('Error verifying token:', error);
     return res.status(401).json({ error: 'Unauthorized: Invalid token' });
   }
 };

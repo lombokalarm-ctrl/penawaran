@@ -1,3 +1,9 @@
+export interface User {
+  id: number;
+  username: string;
+  email: string;
+}
+
 export interface Client {
   id: string;
   name: string; // Contact person
