@@ -217,17 +217,10 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4 text-xs font-mono">
-            <div className="hidden sm:flex items-center gap-2 text-slate-300">
+            <div className="flex items-center gap-2 text-slate-300">
               <UserIcon size={14} className="text-indigo-400" />
               <span>{user.email}</span>
             </div>
-            <button
-              onClick={logout}
-              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded text-xs transition cursor-pointer"
-            >
-              <LogOut size={13} />
-              Keluar
-            </button>
           </div>
         </div>
       </header>

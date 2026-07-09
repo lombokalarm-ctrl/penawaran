@@ -5,7 +5,7 @@ import { createServer as createViteServer } from 'vite';
 import { requireAuth, AuthRequest } from './src/middleware/auth.ts';
 import { db } from './src/db/index.ts';
 import { users, companySettings, clients, offerings, offeringItems, invoices, invoiceItems, payments } from './src/db/schema.ts';
-import { eq, and, or } from 'drizzle-orm';
+import { eq, and, or, sql } from 'drizzle-orm';
 
 function hashPassword(password: string): string {
   return crypto.createHash('sha256').update(password).digest('hex');
@@ -18,6 +18,146 @@ function generateToken(): string {
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+
+  // Bootstrap Database
+  try {
+    console.log('Bootstrapping PostgreSQL database schema...');
+    
+    // Create tables in order
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        uid TEXT UNIQUE,
+        username TEXT NOT NULL UNIQUE,
+        email TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        token TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS company_settings (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        address TEXT,
+        email TEXT,
+        phone TEXT,
+        website TEXT,
+        bank_name TEXT,
+        bank_branch TEXT,
+        bank_account_no TEXT,
+        bank_account_name TEXT,
+        tax_rate INTEGER DEFAULT 11 NOT NULL,
+        signature_name TEXT,
+        signature_position TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS clients (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        company_name TEXT NOT NULL,
+        address TEXT,
+        email TEXT,
+        phone TEXT,
+        pic_name TEXT,
+        pic_position TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS offerings (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        offering_number TEXT NOT NULL,
+        date TEXT NOT NULL,
+        valid_until TEXT NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        discount DOUBLE PRECISION DEFAULT 0 NOT NULL,
+        tax_rate INTEGER DEFAULT 11 NOT NULL,
+        status TEXT NOT NULL,
+        terms JSON,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS offering_items (
+        id SERIAL PRIMARY KEY,
+        offering_id INTEGER NOT NULL REFERENCES offerings(id) ON DELETE CASCADE,
+        description TEXT NOT NULL,
+        qty INTEGER NOT NULL,
+        unit_price DOUBLE PRECISION NOT NULL
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS invoices (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        invoice_number TEXT NOT NULL,
+        offering_id INTEGER REFERENCES offerings(id) ON DELETE SET NULL,
+        date TEXT NOT NULL,
+        due_date TEXT NOT NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        discount DOUBLE PRECISION DEFAULT 0 NOT NULL,
+        tax_rate INTEGER DEFAULT 11 NOT NULL,
+        status TEXT NOT NULL,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS invoice_items (
+        id SERIAL PRIMARY KEY,
+        invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+        description TEXT NOT NULL,
+        qty INTEGER NOT NULL,
+        unit_price DOUBLE PRECISION NOT NULL
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
+        invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        amount DOUBLE PRECISION NOT NULL,
+        method TEXT NOT NULL,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    // Ensure default admin user
+    const adminPasswordHash = crypto.createHash('sha256').update('password12').digest('hex');
+    await db.execute(sql`
+      INSERT INTO users (username, email, password_hash, token)
+      VALUES ('admin', 'admin@apli.my.id', ${adminPasswordHash}, 'admin_token')
+      ON CONFLICT (username) DO UPDATE SET 
+        token = EXCLUDED.token,
+        password_hash = EXCLUDED.password_hash
+    `);
+
+    // Ensure default company settings
+    await db.execute(sql`
+      INSERT INTO company_settings (user_id, name, address, email, phone, website, bank_name, bank_branch, bank_account_no, bank_account_name, tax_rate, signature_name, signature_position)
+      VALUES (1, 'PT Inovasi Teknologi Nusantara', 'Jl. Merdeka No. 123, Jakarta, Indonesia', 'admin@apli.my.id', '+62 21 555 1234', 'www.itn.co.id', 'Bank Mandiri', 'KCP Jakarta Sudirman', '123-45-67890-1', 'PT Inovasi Teknologi Nusantara', 11, 'Budi Santoso', 'Direktur Utama')
+      ON CONFLICT (user_id) DO NOTHING
+    `);
+
+    console.log('Database bootstrap completed successfully!');
+  } catch (err) {
+    console.error('Database bootstrap failed (continuing anyway):', err);
+  }
 
   app.use(express.json());
 
