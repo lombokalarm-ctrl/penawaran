@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { onAuthStateChanged, User, signInWithPopup, signOut } from 'firebase/auth';
+import { onAuthStateChanged, User, signInWithPopup, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth, googleAuthProvider } from './lib/firebase.ts';
 import { Client, CompanySettings, Offering, Invoice, OfferingStatus, InvoiceStatus } from './types';
 
@@ -135,6 +135,14 @@ export function useAppState() {
     } catch (error) {
       console.error('Login failed:', error);
     }
+  };
+
+  const loginWithEmail = async (email: string, pass: string) => {
+    await signInWithEmailAndPassword(auth, email, pass);
+  };
+
+  const registerWithEmail = async (email: string, pass: string) => {
+    await createUserWithEmailAndPassword(auth, email, pass);
   };
 
   const logout = async () => {
@@ -456,6 +464,8 @@ export function useAppState() {
     authLoading,
     dataLoading,
     loginWithGoogle,
+    loginWithEmail,
+    registerWithEmail,
     logout,
     companySettings,
     clients,
