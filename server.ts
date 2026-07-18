@@ -313,7 +313,7 @@ async function startServer() {
           bankBranch: body.bankBranch,
           bankAccountNo: body.bankAccountNo,
           bankAccountName: body.bankAccountName,
-          taxRate: Number(body.taxRate) || 11,
+          taxRate: body.taxRate !== undefined && body.taxRate !== null ? Number(body.taxRate) : 11,
           signatureName: body.signatureName,
           signaturePosition: body.signaturePosition,
         })
@@ -424,7 +424,7 @@ async function startServer() {
             validUntil: body.validUntil,
             clientId: Number(body.clientId),
             discount: Number(body.discount) || 0,
-            taxRate: Number(body.taxRate) || 11,
+            taxRate: body.taxRate !== undefined && body.taxRate !== null ? Number(body.taxRate) : 11,
             status: body.status,
             terms: body.terms || [],
             notes: body.notes || '',
@@ -472,7 +472,7 @@ async function startServer() {
             validUntil: body.validUntil,
             clientId: Number(body.clientId),
             discount: Number(body.discount) || 0,
-            taxRate: Number(body.taxRate) || 11,
+            taxRate: body.taxRate !== undefined && body.taxRate !== null ? Number(body.taxRate) : 11,
             status: body.status,
             terms: body.terms || [],
             notes: body.notes || '',
@@ -546,7 +546,7 @@ async function startServer() {
             dueDate: body.dueDate,
             clientId: Number(body.clientId),
             discount: Number(body.discount) || 0,
-            taxRate: Number(body.taxRate) || 11,
+            taxRate: body.taxRate !== undefined && body.taxRate !== null ? Number(body.taxRate) : 11,
             status: body.status,
             notes: body.notes || '',
           })
@@ -605,7 +605,7 @@ async function startServer() {
             dueDate: body.dueDate,
             clientId: Number(body.clientId),
             discount: Number(body.discount) || 0,
-            taxRate: Number(body.taxRate) || 11,
+            taxRate: body.taxRate !== undefined && body.taxRate !== null ? Number(body.taxRate) : 11,
             status: body.status,
             notes: body.notes || '',
           })
@@ -667,8 +667,21 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      etag: true,
+      lastModified: true,
+      setHeaders: (res, filepath) => {
+        if (filepath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+        }
+      }
+    }));
     app.get('*', (req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

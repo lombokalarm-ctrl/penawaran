@@ -2,16 +2,9 @@ import { useState, useEffect } from 'react';
 import { User, Client, CompanySettings, Offering, Invoice, OfferingStatus, InvoiceStatus } from './types';
 
 export function useAppState() {
-  const [user, setUser] = useState<User | null>({ id: 1, username: 'admin', email: 'admin@apli.my.id' });
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token') || 'admin_token');
-  const [authLoading, setAuthLoading] = useState<boolean>(false);
-
-  // Sync token to localStorage on startup
-  useEffect(() => {
-    if (!localStorage.getItem('token')) {
-      localStorage.setItem('token', 'admin_token');
-    }
-  }, []);
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
 
   const [companySettings, setCompanySettings] = useState<CompanySettings>({
     name: '',
@@ -45,7 +38,7 @@ export function useAppState() {
     id: String(o.id),
     clientId: String(o.clientId),
     discount: Number(o.discount) || 0,
-    taxRate: Number(o.taxRate) || 11,
+    taxRate: o.taxRate !== undefined && o.taxRate !== null ? Number(o.taxRate) : 11,
     items: (o.items || []).map((item: any) => ({
       ...item,
       id: String(item.id)
@@ -59,7 +52,7 @@ export function useAppState() {
     clientId: String(i.clientId),
     offeringId: i.offeringId ? String(i.offeringId) : undefined,
     discount: Number(i.discount) || 0,
-    taxRate: Number(i.taxRate) || 11,
+    taxRate: i.taxRate !== undefined && i.taxRate !== null ? Number(i.taxRate) : 11,
     items: (i.items || []).map((item: any) => ({
       ...item,
       id: String(item.id)
@@ -93,7 +86,15 @@ export function useAppState() {
   // Check persisted auth token on startup and whenever token state changes
   useEffect(() => {
     const checkAuth = async () => {
-      const savedToken = localStorage.getItem('token') || 'admin_token';
+      const wasLoggedOut = localStorage.getItem('logged_out') === 'true';
+      const savedToken = localStorage.getItem('token') || (wasLoggedOut ? null : 'admin_token');
+
+      if (!savedToken) {
+        setUser(null);
+        setAuthLoading(false);
+        return;
+      }
+
       try {
         const res = await fetch('/api/auth/me', {
           headers: {
@@ -102,13 +103,33 @@ export function useAppState() {
         });
         if (res.ok) {
           const data = await res.json();
-          setUser(data.user || { id: 1, username: 'admin', email: 'admin@apli.my.id' });
+          if (data.user) {
+            setUser({
+              id: data.user.id,
+              username: data.user.username,
+              email: data.user.email
+            });
+            setToken(savedToken);
+            localStorage.setItem('token', savedToken);
+            localStorage.removeItem('logged_out');
+          } else {
+            setUser(null);
+            setToken(null);
+            localStorage.removeItem('token');
+          }
         } else {
-          setUser({ id: 1, username: 'admin', email: 'admin@apli.my.id' });
+          setUser(null);
+          setToken(null);
+          localStorage.removeItem('token');
         }
       } catch (error) {
         console.error('Failed to verify session token:', error);
-        setUser({ id: 1, username: 'admin', email: 'admin@apli.my.id' });
+        const hasToken = localStorage.getItem('token');
+        if (hasToken) {
+          setUser({ id: 1, username: 'admin', email: 'admin@apli.my.id' });
+        } else {
+          setUser(null);
+        }
       } finally {
         setAuthLoading(false);
       }
@@ -168,6 +189,7 @@ export function useAppState() {
     if (!res.ok) {
       throw new Error(data.error || 'Login gagal. Periksa kembali username dan password Anda.');
     }
+    localStorage.removeItem('logged_out');
     localStorage.setItem('token', data.token);
     setToken(data.token);
     setUser(data.user);
@@ -186,6 +208,7 @@ export function useAppState() {
     if (!res.ok) {
       throw new Error(data.error || 'Registrasi gagal. Email atau Username mungkin sudah digunakan.');
     }
+    localStorage.removeItem('logged_out');
     localStorage.setItem('token', data.token);
     setToken(data.token);
     setUser(data.user);
@@ -206,6 +229,7 @@ export function useAppState() {
       console.error('Logout error on server:', error);
     } finally {
       localStorage.removeItem('token');
+      localStorage.setItem('logged_out', 'true');
       setToken(null);
       setUser(null);
     }

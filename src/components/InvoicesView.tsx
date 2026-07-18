@@ -71,7 +71,7 @@ export default function InvoicesView({
   const [dueDate, setDueDate] = useState('');
   const [items, setItems] = useState<LineItem[]>([]);
   const [discount, setDiscount] = useState<number>(0);
-  const [taxRate, setTaxRate] = useState<number>(companySettings.taxRate || 11);
+  const [taxRate, setTaxRate] = useState<number>(companySettings.taxRate !== undefined && companySettings.taxRate !== null ? companySettings.taxRate : 11);
   const [notes, setNotes] = useState('');
 
   // Item form state
@@ -180,8 +180,8 @@ export default function InvoicesView({
         setViewingInvoice(created); // Auto open viewing mode
       }
       handleCloseForm();
-    } catch (error) {
-      alert('Gagal menyimpan invoice. Silakan coba lagi.');
+    } catch (error: any) {
+      alert('Gagal menyimpan invoice: ' + (error?.message || 'Silakan coba lagi.'));
     }
   };
 

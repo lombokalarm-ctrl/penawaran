@@ -91,8 +91,8 @@ export default function ClientsView({
         await onAddClient(clientPayload);
       }
       handleCloseForm();
-    } catch (error) {
-      alert('Gagal menyimpan klien. Silakan coba lagi.');
+    } catch (error: any) {
+      alert('Gagal menyimpan klien: ' + (error?.message || 'Silakan coba lagi.'));
     }
   };
 

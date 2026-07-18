@@ -52,7 +52,7 @@ export default function OfferingsView({
   const [validUntil, setValidUntil] = useState('');
   const [items, setItems] = useState<LineItem[]>([]);
   const [discount, setDiscount] = useState<number>(0);
-  const [taxRate, setTaxRate] = useState<number>(companySettings.taxRate || 11);
+  const [taxRate, setTaxRate] = useState<number>(companySettings.taxRate !== undefined && companySettings.taxRate !== null ? companySettings.taxRate : 11);
   const [status, setStatus] = useState<OfferingStatus>('Draft');
   const [terms, setTerms] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
@@ -190,8 +190,8 @@ export default function OfferingsView({
         setViewingOffering(created); // Auto show on success
       }
       handleCloseForm();
-    } catch (error) {
-      alert('Gagal menyimpan penawaran. Silakan coba lagi.');
+    } catch (error: any) {
+      alert('Gagal menyimpan penawaran: ' + (error?.message || 'Silakan coba lagi.'));
     }
   };
 
